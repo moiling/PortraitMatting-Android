@@ -15,3 +15,4 @@
 /app/src/main/assets/*.pth
 /app/src/main/assets/*.png
 /app/src/main/assets/*.jpg
+.idea
