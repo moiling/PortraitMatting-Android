@@ -1,6 +1,7 @@
 package com.moinut.portraitmatting
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -50,30 +51,46 @@ class MainActivity : AppCompatActivity() {
         }
 
         buttonMatting.setOnClickListener {
-            run {
-                if (mModuleLoaded and (mBitmap != null)) {
-                    toast("matting...")
-                    progressBar.visibility = ProgressBar.VISIBLE
+            if (!mModuleLoaded or (mBitmap == null)) {
+                toast("please load model and image first.")
+                return@setOnClickListener
+            }
 
-                    val startTime = System.currentTimeMillis()
-                    doAsync {
-                        val out = matting()
+            toast("matting...")
+            progressBar.visibility = ProgressBar.VISIBLE
 
-                        uiThread {
-                            val useTime = (System.currentTimeMillis() - startTime) / 1000.0
-                            toast(String.format("time: %.2fs", useTime))
-                            imageView.setImageBitmap(out)
-                            progressBar.visibility = ProgressBar.INVISIBLE
-                        }
-                    }
-                } else {
-                    toast("please load model and image first.")
+            val startTime = System.currentTimeMillis()
+            doAsync {
+                val out = matting()
+
+                uiThread {
+                    val useTime = (System.currentTimeMillis() - startTime) / 1000.0
+                    toast(String.format("time: %.2fs", useTime))
+                    imageView.setImageBitmap(out)
+                    progressBar.visibility = ProgressBar.INVISIBLE
                 }
             }
         }
 
         buttonReset.setOnClickListener {
             imageView.setImageBitmap(mBitmap)
+        }
+
+        buttonPhoto.setOnClickListener {
+            val intent = Intent(this, CameraActivity::class.java)
+            startActivityForResult(intent, 0)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 0) { // camera activity
+//            mBitmap = data?.getStringExtra("photo_path")?.let { loadBitmap(it) }
+            if (data?.getBooleanExtra("success", false)!!) {
+                mBitmap = PhotoController.instance.mBitmap
+            }
+            imageView.setImageBitmap(mBitmap)
+
         }
     }
 
@@ -85,20 +102,31 @@ class MainActivity : AppCompatActivity() {
         val scaledBitmap = Bitmap.createScaledBitmap(mBitmap!!, Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE, true)
         val inputTensor: Tensor = TensorImageUtils.bitmapToFloat32Tensor(scaledBitmap, mean, std)
         val outTensor: IValue = mModule!!.forward(IValue.from(inputTensor))
-        val alphaFloat: FloatArray = outTensor.toTuple()[0].toTensor().dataAsFloatArray
-        val alphaInt = IntArray(alphaFloat.size)
-        for ((i, alpha) in alphaFloat.withIndex()) {
-            alphaInt[i] = Color.argb(1f, alpha, alpha, alpha)
-        }
+
         val outBitmap: Bitmap = Bitmap.createBitmap(Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE, Bitmap.Config.ARGB_8888)
-        outBitmap.setPixels(alphaInt, 0, Const.NETWORK_IMAGE_SIZE, 0, 0, Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE)
+
+//        val alphaFloat: FloatArray = outTensor.toTuple()[0].toTensor().dataAsFloatArray
+//        val alphaInt = IntArray(alphaFloat.size)
+//        for ((i, alpha) in alphaFloat.withIndex()) {
+//            alphaInt[i] = Color.argb(1f, alpha, alpha, alpha)
+//        }
+//
+//        outBitmap.setPixels(alphaInt, 0, Const.NETWORK_IMAGE_SIZE, 0, 0, Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE)
+
+        val cutoutFloat: FloatArray = outTensor.toTuple()[2].toTensor().dataAsFloatArray
+        val cutoutInt = IntArray(cutoutFloat.size / 4)
+
+        for (i in cutoutInt.indices) {
+            cutoutInt[i] = Color.argb(cutoutFloat[i + 3 * cutoutInt.size], cutoutFloat[i], cutoutFloat[i + cutoutInt.size], cutoutFloat[i + 2 * cutoutInt.size])
+        }
+        outBitmap.setPixels(cutoutInt, 0, Const.NETWORK_IMAGE_SIZE, 0, 0, Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE)
 
         return Bitmap.createScaledBitmap(outBitmap, originWidth, originHeight, true)
     }
 
     private fun loadModel(): String {
         return try {
-            mModule = Module.load(assetFilePath(applicationContext, "model.pth"))
+            mModule = Module.load(assetFilePath(applicationContext, "cutout.pth"))
             "model load succeed."
         } catch (e: IOException) {
             "model load failed."

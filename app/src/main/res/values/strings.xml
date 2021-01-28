@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">PortraitMatting-Android</string>
     <string name="matting">Matting</string>
+    <string name="reset">reset</string>
 </resources>
