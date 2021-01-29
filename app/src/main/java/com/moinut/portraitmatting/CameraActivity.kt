@@ -144,30 +144,6 @@ class CameraActivity : AppCompatActivity() {
     }
 
     private fun takePhoto() {
-        val photoFile = File(mOutputDirectory, SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis()) + ".jpg")
-
-        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-
-//        mImageCapture?.takePicture(outputOptions, ContextCompat.getMainExecutor(this),
-//            object : ImageCapture.OnImageSavedCallback {
-//                override fun onError(exc: ImageCaptureException) {
-//                    Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
-//                }
-//
-//                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-//                    val savedUri = Uri.fromFile(photoFile)
-//                    val msg = "Photo capture succeeded: ${savedUri.path}"
-//                    toast(msg)
-//                    Log.d(TAG, msg)
-//
-//                    val intent = Intent()
-//                    intent.putExtra("photo_path", savedUri.path)
-//                    setResult(Activity.RESULT_OK, intent)
-//                    finish()
-//                }
-//            }
-//        )
-
         mImageCapture?.takePicture(ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageCapturedCallback() {
                 @SuppressLint("UnsafeExperimentalUsageError")

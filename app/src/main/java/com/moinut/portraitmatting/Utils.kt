@@ -47,7 +47,7 @@ fun Bitmap.rotate(alpha: Float): Bitmap? {
     val matrix = Matrix()
     matrix.setRotate(alpha)
 
-    val newBM = Bitmap.createBitmap(this, 0, 0, width, height, matrix, false)
+    val newBM = Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
 
     if (!this.isRecycled) {
         this.recycle()
@@ -71,7 +71,7 @@ fun Bitmap.resizeIfShortBigThan(size: Int): Bitmap? {
     val matrix = Matrix()
     matrix.postScale(ratio, ratio)
 
-    val newBM = Bitmap.createBitmap(this, 0, 0, width, height, matrix, false)
+    val newBM = Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
     if (!this.isRecycled) {
         this.recycle()
     }
@@ -83,7 +83,7 @@ fun Bitmap.flipHorizontal(): Bitmap? {
     val matrix = Matrix()
     matrix.postScale(-1f, 1f)
 
-    val newBM = Bitmap.createBitmap(this, 0, 0, width, height, matrix, false)
+    val newBM = Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
     if (!this.isRecycled) {
         this.recycle()
     }

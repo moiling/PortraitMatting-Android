@@ -7,6 +7,8 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.view.View
+import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.Toast
 import kotlinx.android.synthetic.main.activity_main.*
@@ -30,6 +32,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        buttonMatting.visibility = View.INVISIBLE
+
         // load model
         progressBar.visibility = ProgressBar.VISIBLE
         doAsync {
@@ -38,16 +42,8 @@ class MainActivity : AppCompatActivity() {
             uiThread {
                 toast(result)
                 mModuleLoaded = true
-                progressBar.visibility = ProgressBar.INVISIBLE
+                progressBar.visibility = View.INVISIBLE
             }
-        }
-
-        // test image
-        try {
-            mBitmap = BitmapFactory.decodeStream(assets.open("img.jpg"))
-            imageView.setImageBitmap(mBitmap)
-        } catch (e: IOException) {
-            toast("load image failed.")
         }
 
         buttonMatting.setOnClickListener {
@@ -57,7 +53,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             toast("matting...")
-            progressBar.visibility = ProgressBar.VISIBLE
+            progressBar.visibility = View.VISIBLE
 
             val startTime = System.currentTimeMillis()
             doAsync {
@@ -67,13 +63,9 @@ class MainActivity : AppCompatActivity() {
                     val useTime = (System.currentTimeMillis() - startTime) / 1000.0
                     toast(String.format("time: %.2fs", useTime))
                     imageView.setImageBitmap(out)
-                    progressBar.visibility = ProgressBar.INVISIBLE
+                    progressBar.visibility = View.INVISIBLE
                 }
             }
-        }
-
-        buttonReset.setOnClickListener {
-            imageView.setImageBitmap(mBitmap)
         }
 
         buttonPhoto.setOnClickListener {
@@ -85,9 +77,12 @@ class MainActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 0) { // camera activity
-//            mBitmap = data?.getStringExtra("photo_path")?.let { loadBitmap(it) }
             if (data?.getBooleanExtra("success", false)!!) {
                 mBitmap = PhotoController.instance.mBitmap
+
+                if (mBitmap != null) {
+                    buttonMatting.visibility = View.VISIBLE
+                }
             }
             imageView.setImageBitmap(mBitmap)
 
@@ -101,18 +96,10 @@ class MainActivity : AppCompatActivity() {
         val originHeight = mBitmap!!.height
         val scaledBitmap = Bitmap.createScaledBitmap(mBitmap!!, Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE, true)
         val inputTensor: Tensor = TensorImageUtils.bitmapToFloat32Tensor(scaledBitmap, mean, std)
+
         val outTensor: IValue = mModule!!.forward(IValue.from(inputTensor))
 
         val outBitmap: Bitmap = Bitmap.createBitmap(Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE, Bitmap.Config.ARGB_8888)
-
-//        val alphaFloat: FloatArray = outTensor.toTuple()[0].toTensor().dataAsFloatArray
-//        val alphaInt = IntArray(alphaFloat.size)
-//        for ((i, alpha) in alphaFloat.withIndex()) {
-//            alphaInt[i] = Color.argb(1f, alpha, alpha, alpha)
-//        }
-//
-//        outBitmap.setPixels(alphaInt, 0, Const.NETWORK_IMAGE_SIZE, 0, 0, Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE)
-
         val cutoutFloat: FloatArray = outTensor.toTuple()[2].toTensor().dataAsFloatArray
         val cutoutInt = IntArray(cutoutFloat.size / 4)
 
@@ -126,7 +113,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadModel(): String {
         return try {
-            mModule = Module.load(assetFilePath(applicationContext, "cutout.pth"))
+            mModule = Module.load(assetFilePath(applicationContext, Const.MODEL_NAME))
             "model load succeed."
         } catch (e: IOException) {
             "model load failed."
