@@ -3,14 +3,14 @@ package com.moinut.portraitmatting
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Paint
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.view.View
-import android.widget.Button
-import android.widget.ProgressBar
 import android.widget.Toast
+import androidx.core.graphics.scale
+import androidx.core.graphics.set
 import kotlinx.android.synthetic.main.activity_main.*
 import org.jetbrains.anko.doAsync
 import org.jetbrains.anko.uiThread
@@ -31,40 +31,14 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
-        buttonMatting.visibility = View.INVISIBLE
-
+        progressBar.visibility = View.INVISIBLE
+        textView.paint.flags = Paint.STRIKE_THRU_TEXT_FLAG
         // load model
-        progressBar.visibility = ProgressBar.VISIBLE
         doAsync {
-            val result = loadModel()
+            loadModel()
 
             uiThread {
-                toast(result)
                 mModuleLoaded = true
-                progressBar.visibility = View.INVISIBLE
-            }
-        }
-
-        buttonMatting.setOnClickListener {
-            if (!mModuleLoaded or (mBitmap == null)) {
-                toast("please load model and image first.")
-                return@setOnClickListener
-            }
-
-            toast("matting...")
-            progressBar.visibility = View.VISIBLE
-
-            val startTime = System.currentTimeMillis()
-            doAsync {
-                val out = matting()
-
-                uiThread {
-                    val useTime = (System.currentTimeMillis() - startTime) / 1000.0
-                    toast(String.format("time: %.2fs", useTime))
-                    imageView.setImageBitmap(out)
-                    progressBar.visibility = View.INVISIBLE
-                }
             }
         }
 
@@ -77,15 +51,27 @@ class MainActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 0) { // camera activity
-            if (data?.getBooleanExtra("success", false)!!) {
+            data?.let { if (it.getBooleanExtra("success", false)) {
                 mBitmap = PhotoController.instance.mBitmap
-
-                if (mBitmap != null) {
-                    buttonMatting.visibility = View.VISIBLE
+                imageView.setImageBitmap(mBitmap)
+                if (!mModuleLoaded or (mBitmap == null)) {
+                    toast("wrong photos.")
+                    return
                 }
-            }
-            imageView.setImageBitmap(mBitmap)
 
+                progressBar.visibility = View.VISIBLE
+
+                doAsync {
+                    val out = matting()
+
+                    uiThread {
+                        imageView.setImageBitmap(out)
+                        val backgroundColor = Color.argb(1f, 33 / 255f, 150 / 255f, 243 / 255f)
+                        imageView.setBackgroundColor(backgroundColor)
+                        progressBar.visibility = View.INVISIBLE
+                    }
+                }
+            }}
         }
     }
 
@@ -99,16 +85,38 @@ class MainActivity : AppCompatActivity() {
 
         val outTensor: IValue = mModule!!.forward(IValue.from(inputTensor))
 
-        val outBitmap: Bitmap = Bitmap.createBitmap(Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE, Bitmap.Config.ARGB_8888)
+        val scaledCutoutBitmap: Bitmap = Bitmap.createBitmap(Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE, Bitmap.Config.ARGB_8888)
         val cutoutFloat: FloatArray = outTensor.toTuple()[2].toTensor().dataAsFloatArray
         val cutoutInt = IntArray(cutoutFloat.size / 4)
 
+        // network size for.
         for (i in cutoutInt.indices) {
-            cutoutInt[i] = Color.argb(cutoutFloat[i + 3 * cutoutInt.size], cutoutFloat[i], cutoutFloat[i + cutoutInt.size], cutoutFloat[i + 2 * cutoutInt.size])
+            val alpha = cutoutFloat[i + 3 * cutoutInt.size]
+            val r = cutoutFloat[i]
+            val g = cutoutFloat[i + cutoutInt.size]
+            val b = cutoutFloat[i + 2 * cutoutInt.size]
+            cutoutInt[i] = Color.argb(alpha, r, g, b)
         }
-        outBitmap.setPixels(cutoutInt, 0, Const.NETWORK_IMAGE_SIZE, 0, 0, Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE)
+        scaledCutoutBitmap.setPixels(cutoutInt, 0, Const.NETWORK_IMAGE_SIZE, 0, 0, Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE)
+        val cutoutBitmap = scaledCutoutBitmap.scale(originWidth, originHeight, true)
 
-        return Bitmap.createScaledBitmap(outBitmap, originWidth, originHeight, true)
+        // max size for.
+        for (i in 0 until cutoutBitmap.width * cutoutBitmap.height) {
+            val x = i.rem(cutoutBitmap.width)
+            val y = i / cutoutBitmap.width
+            val alpha = cutoutBitmap.getColor(x, y).alpha()
+
+            // if alpha > 80%, use original color.
+            if (alpha > .8f) {
+                val r = mBitmap!!.getColor(x, y).red()
+                val g = mBitmap!!.getColor(x, y).green()
+                val b = mBitmap!!.getColor(x, y).blue()
+                cutoutBitmap[x, y] = Color.argb(alpha, r, g, b)
+            }
+        }
+        PhotoController.instance.mCutoutBitmap = cutoutBitmap
+
+        return cutoutBitmap
     }
 
     private fun loadModel(): String {

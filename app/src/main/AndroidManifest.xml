@@ -17,7 +17,7 @@
             android:theme="@style/AppThemeTranslucent" />
         <activity
             android:name=".MainActivity"
-            android:theme="@style/AppThemeTranslucentLightStatusBar">
+            android:theme="@style/AppThemeTranslucent">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

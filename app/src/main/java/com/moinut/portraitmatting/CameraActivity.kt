@@ -5,14 +5,12 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.BitmapFactory
-import android.icu.text.SimpleDateFormat
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.util.Size
 import android.view.OrientationEventListener
 import android.view.Surface
+import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
@@ -22,7 +20,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LiveData
 import kotlinx.android.synthetic.main.activity_camera.*
 import java.io.File
-import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -61,10 +58,47 @@ class CameraActivity : AppCompatActivity() {
         // Setup the listener for take photo button
         buttonTakePhoto.setOnClickListener { takePhoto() }
         buttonChangeCamera.setOnClickListener { changeCamera() }
+        buttonBack.setOnClickListener { finish() }
+        buttonCancel.setOnClickListener { previewLayoutVisible(false) }
+        buttonOk.setOnClickListener {
+            val intent = Intent()
+            intent.putExtra("success", true)
+            setResult(Activity.RESULT_OK, intent)
+            finish()
+        }
+
+        previewLayoutVisible(false)
+
+        val windowWidth = this.windowManager.currentWindowMetrics.bounds.width()
+        if (mAspectRatioInt == AspectRatio.RATIO_16_9) {
+            viewFinder.layoutParams.height = windowWidth * 16 / 9
+            imageCamera.layoutParams.height = windowWidth * 16 / 9
+        } else {
+            viewFinder.layoutParams.height = windowWidth * 4 / 3
+            imageCamera.layoutParams.height = windowWidth * 4 / 3
+        }
 
         mOutputDirectory = getOutputDirectory()
 
         mCameraExecutor = Executors.newSingleThreadExecutor()
+    }
+
+    private fun previewLayoutVisible(visible: Boolean) {
+        if (visible) {
+            imageCamera.visibility = View.VISIBLE
+            buttonCancel.visibility = View.VISIBLE
+            buttonOk.visibility = View.VISIBLE
+            buttonTakePhoto.visibility = View.INVISIBLE
+            viewFinder.visibility = View.INVISIBLE
+            buttonChangeCamera.visibility = View.INVISIBLE
+        } else {
+            imageCamera.visibility = View.INVISIBLE
+            buttonCancel.visibility = View.INVISIBLE
+            buttonOk.visibility = View.INVISIBLE
+            buttonTakePhoto.visibility = View.VISIBLE
+            viewFinder.visibility = View.VISIBLE
+            buttonChangeCamera.visibility = View.VISIBLE
+        }
     }
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
@@ -115,24 +149,24 @@ class CameraActivity : AppCompatActivity() {
             .build()
 
 
-//        val orientationEventListener by lazy {
-//            object : OrientationEventListener(this) {
-//                override fun onOrientationChanged(orientation: Int) {
-//
-//                    val rotation = when (orientation) {
-//                        in 45 until 135 -> Surface.ROTATION_270
-//                        in 135 until 225 -> Surface.ROTATION_180
-//                        in 225 until 315 -> Surface.ROTATION_90
-//                        else -> Surface.ROTATION_0
-//                    }
-//
-//                    mImageAnalyzer?.targetRotation = rotation
-//                    mImageCapture?.targetRotation = rotation
-//                }
-//            }
-//        }
-//
-//        orientationEventListener.enable()
+        val orientationEventListener by lazy {
+            object : OrientationEventListener(this) {
+                override fun onOrientationChanged(orientation: Int) {
+
+                    val rotation = when (orientation) {
+                        in 45 until 135 -> Surface.ROTATION_270
+                        in 135 until 225 -> Surface.ROTATION_180
+                        in 225 until 315 -> Surface.ROTATION_90
+                        else -> Surface.ROTATION_0
+                    }
+
+                    mImageAnalyzer?.targetRotation = rotation
+                    mImageCapture?.targetRotation = rotation
+                }
+            }
+        }
+
+        orientationEventListener.enable()
     }
 
     private fun initPreview() {
@@ -159,10 +193,8 @@ class CameraActivity : AppCompatActivity() {
 
                     PhotoController.instance.mBitmap = bitmap
 
-                    val intent = Intent()
-                    intent.putExtra("success", true)
-                    setResult(Activity.RESULT_OK, intent)
-                    finish()
+                    imageCamera.setImageBitmap(bitmap)
+                    previewLayoutVisible(true)
                 }
 
                 override fun onError(exception: ImageCaptureException) {
