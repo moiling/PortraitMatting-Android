@@ -3,6 +3,7 @@
     package="com.moinut.portraitmatting">
 
     <uses-feature android:name="android.hardware.camera.any" />
+
     <uses-permission android:name="android.permission.CAMERA" />
 
     <application
@@ -13,6 +14,9 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
         <activity
+            android:name=".EditActivity"
+            android:theme="@style/AppThemeTranslucent" />
+        <activity
             android:name=".CameraActivity"
             android:theme="@style/AppThemeTranslucent" />
         <activity
@@ -20,6 +24,7 @@
             android:theme="@style/AppThemeTranslucent">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>

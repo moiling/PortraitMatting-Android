@@ -33,7 +33,7 @@ class CameraActivity : AppCompatActivity() {
     private var mCameraInfo: CameraInfo? = null
     private var mCameraControl: CameraControl? = null
 
-    private var mAspectRatioInt = AspectRatio.RATIO_16_9
+    private var mAspectRatioInt = AspectRatio.RATIO_4_3
     private var mCameraSelectorInt = CameraSelector.LENS_FACING_BACK
 
     private lateinit var mOutputDirectory: File
@@ -61,9 +61,8 @@ class CameraActivity : AppCompatActivity() {
         buttonBack.setOnClickListener { finish() }
         buttonCancel.setOnClickListener { previewLayoutVisible(false) }
         buttonOk.setOnClickListener {
-            val intent = Intent()
-            intent.putExtra("success", true)
-            setResult(Activity.RESULT_OK, intent)
+            val intent = Intent(this, EditActivity::class.java)
+            startActivity(intent)
             finish()
         }
 
@@ -192,6 +191,7 @@ class CameraActivity : AppCompatActivity() {
                     }
 
                     PhotoController.instance.mBitmap = bitmap
+                    PhotoController.instance.mCutoutBitmap = null
 
                     imageCamera.setImageBitmap(bitmap)
                     previewLayoutVisible(true)
