@@ -2,7 +2,6 @@ package com.moinut.portraitmatting
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -22,6 +21,7 @@ import kotlinx.android.synthetic.main.activity_camera.*
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 
 class CameraActivity : AppCompatActivity() {
@@ -128,6 +128,50 @@ class CameraActivity : AppCompatActivity() {
 
     private fun initCameraListener() {
         val zoomState: LiveData<ZoomState> = mCameraInfo?.zoomState!!
+
+        val cameraXPreviewViewTouchListener = CameraTouchListener(this)
+        cameraXPreviewViewTouchListener.setCustomTouchListener(object : CameraTouchListener.CustomTouchListener {
+            override fun zoom(delta: Float) {
+                val currentZoomRatio = zoomState.value!!.zoomRatio
+                mCameraControl!!.setZoomRatio(currentZoomRatio * delta)
+            }
+
+            override fun click(x: Float, y: Float) {
+                val factory: MeteringPointFactory = viewFinder.meteringPointFactory
+                val point = factory.createPoint(x, y)
+                val action = FocusMeteringAction.Builder(
+                    point,
+                    FocusMeteringAction.FLAG_AF
+                ) // auto calling cancelFocusAndMetering in 3 seconds
+                    .setAutoCancelDuration(3, TimeUnit.SECONDS)
+                    .build()
+                // mBinding.focusView.startFocus(Point(x.toInt(), y.toInt()))
+                val future= mCameraControl!!.startFocusAndMetering(action)
+//                future.addListener({
+//                    try {
+//                        if (future.get().isFocusSuccessful) {
+//                            // mBinding.focusView.onFocusSuccess()
+//                        } else {
+//                            // mBinding.focusView.onFocusFailed()
+//                        }
+//                    } catch (e: Exception) {
+//                        // LogUtils.e(e)
+//                    }
+//                }, executor)
+            }
+
+            override fun doubleClick(x: Float, y: Float) {
+                val currentZoomRatio = zoomState.value!!.zoomRatio
+                if (currentZoomRatio > zoomState.value!!.minZoomRatio) {
+                    mCameraControl!!.setLinearZoom(0f)
+                } else {
+                    mCameraControl!!.setLinearZoom(0.5f)
+                }
+            }
+
+            override fun longClick(x: Float, y: Float) {}
+        })
+        viewFinder.setOnTouchListener(cameraXPreviewViewTouchListener)
     }
 
     private fun initImageAnalyzer() {

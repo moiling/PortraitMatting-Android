@@ -72,7 +72,7 @@ fun Bitmap.resizeIfShortBigThan(size: Int): Bitmap? {
     matrix.postScale(ratio, ratio)
 
     val newBM = Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
-    if (!this.isRecycled) {
+    if (!this.isRecycled && this != newBM) {  // if new is the same as old, return it self, can't be recycled.
         this.recycle()
     }
     return newBM

@@ -10,12 +10,14 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
-import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.*
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.skydoves.colorpickerview.ColorEnvelope
+import com.skydoves.colorpickerview.ColorPickerDialog
+import com.skydoves.colorpickerview.listeners.ColorEnvelopeListener
 import kotlinx.android.synthetic.main.activity_edit.*
 import org.jetbrains.anko.doAsync
 import org.jetbrains.anko.uiThread
@@ -49,10 +51,17 @@ class EditActivity : AppCompatActivity() {
 
         progressBar.visibility = View.INVISIBLE
 
-        recyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
-        recyclerView.adapter = object: RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-            override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-                return ColorViewHolder(LayoutInflater.from(this@EditActivity).inflate(R.layout.item_color, parent, false))
+        recyclerView.layoutManager =
+            LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        recyclerView.adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+            override fun onCreateViewHolder(
+                parent: ViewGroup,
+                viewType: Int
+            ): RecyclerView.ViewHolder {
+                return ColorViewHolder(
+                    LayoutInflater.from(this@EditActivity)
+                        .inflate(R.layout.item_color, parent, false)
+                )
             }
 
             override fun getItemCount(): Int {
@@ -65,7 +74,7 @@ class EditActivity : AppCompatActivity() {
                 colorHolder.mButton!!.setBackgroundColor(mColorList[position])
             }
 
-            inner class ColorViewHolder(itemView: View): RecyclerView.ViewHolder(itemView) {
+            inner class ColorViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
                 var mButton: ImageButton? = null
                 var mColor: Int? = null
 
@@ -79,6 +88,23 @@ class EditActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+
+        buttonColorPicker.setOnClickListener {
+            ColorPickerDialog.Builder(this)
+                .setTitle("Choose Background Color")
+                .setPreferenceName("ColorPickerDialog")
+                .setPositiveButton("OK", ColorEnvelopeListener { envelope, fromUser ->
+                    mBackgroundColor = envelope.color
+                    imageViewEdit.setBackgroundColor(envelope.color)
+                })
+                .setNegativeButton("Cancel") { dialogInterface, i ->
+                    dialogInterface.dismiss()
+                }
+                .attachAlphaSlideBar(false)
+                .attachBrightnessSlideBar(true)
+                .setBottomSpace(12)
+                .show()
         }
 
         buttonEditBack.setOnClickListener { finish() }
@@ -132,6 +158,10 @@ class EditActivity : AppCompatActivity() {
                 val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
                 val data = Date()
                 saveBitmap("${format.format(data)}.png", compBitmap)
+                saveBitmap(
+                    "${format.format(data)}_cutout.png",
+                    PhotoController.instance.mCutoutBitmap!!
+                )
 
                 uiThread {
                     toast("Saved.")
@@ -191,12 +221,21 @@ class EditActivity : AppCompatActivity() {
 
         val originWidth = mBitmap!!.width
         val originHeight = mBitmap!!.height
-        val scaledBitmap = Bitmap.createScaledBitmap(mBitmap!!, Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE, true)
+        val scaledBitmap = Bitmap.createScaledBitmap(
+            mBitmap!!,
+            Const.NETWORK_IMAGE_SIZE,
+            Const.NETWORK_IMAGE_SIZE,
+            true
+        )
         val inputTensor: Tensor = TensorImageUtils.bitmapToFloat32Tensor(scaledBitmap, mean, std)
 
         val outTensor: IValue = PhotoController.instance.mModule!!.forward(IValue.from(inputTensor))
 
-        val scaledCutoutBitmap: Bitmap = Bitmap.createBitmap(Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE, Bitmap.Config.ARGB_8888)
+        val scaledCutoutBitmap: Bitmap = Bitmap.createBitmap(
+            Const.NETWORK_IMAGE_SIZE,
+            Const.NETWORK_IMAGE_SIZE,
+            Bitmap.Config.ARGB_8888
+        )
         val cutoutFloat: FloatArray = outTensor.toTuple()[2].toTensor().dataAsFloatArray
         val cutoutInt = IntArray(cutoutFloat.size / 4)
 
@@ -208,7 +247,15 @@ class EditActivity : AppCompatActivity() {
             val b = cutoutFloat[i + 2 * cutoutInt.size]
             cutoutInt[i] = Color.argb(alpha, r, g, b)
         }
-        scaledCutoutBitmap.setPixels(cutoutInt, 0, Const.NETWORK_IMAGE_SIZE, 0, 0, Const.NETWORK_IMAGE_SIZE, Const.NETWORK_IMAGE_SIZE)
+        scaledCutoutBitmap.setPixels(
+            cutoutInt,
+            0,
+            Const.NETWORK_IMAGE_SIZE,
+            0,
+            0,
+            Const.NETWORK_IMAGE_SIZE,
+            Const.NETWORK_IMAGE_SIZE
+        )
         val cutoutBitmap = scaledCutoutBitmap.scale(originWidth, originHeight, true)
 
         // max size for.

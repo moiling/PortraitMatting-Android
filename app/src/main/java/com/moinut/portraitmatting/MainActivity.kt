@@ -1,28 +1,40 @@
 package com.moinut.portraitmatting
 
+import android.Manifest
+import android.app.Activity
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.Color
-import android.graphics.Paint
-import androidx.appcompat.app.AppCompatActivity
+import android.content.pm.PackageManager
+import android.database.Cursor
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
-import android.view.View
+import android.provider.DocumentsContract
+import android.provider.MediaStore
+import android.util.Log
 import android.widget.Toast
-import androidx.core.graphics.scale
-import androidx.core.graphics.set
+import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.CameraSelector
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import kotlinx.android.synthetic.main.activity_main.*
 import org.jetbrains.anko.doAsync
 import org.jetbrains.anko.uiThread
-import org.pytorch.IValue
 import org.pytorch.Module
-import org.pytorch.Tensor
-import org.pytorch.torchvision.TensorImageUtils
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 
+
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        private const val TAG = "MainActivity"
+        private const val REQUEST_CODE_PERMISSIONS = 101
+        private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        private const val PICK_PHOTO = 102
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,15 +49,69 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        imageView.setOnClickListener {
+            if (Const.MODEL_NAME == "mobilenet_cutout.pth") {
+                Const.MODEL_NAME = "pspnet_cutout.pth"
+                toast("loading PSPNet")
+                loadModel()
+            } else {
+                Const.MODEL_NAME = "mobilenet_cutout.pth"
+                loadModel()
+                toast("loading MobileNet")
+            }
+        }
+
         buttonPhoto.setOnClickListener {
             val intent = Intent(this, CameraActivity::class.java)
             startActivity(intent)
+        }
+
+        buttonFile.setOnClickListener {
+            if (ContextCompat.checkSelfPermission(
+                    this@MainActivity,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this@MainActivity,
+                    REQUIRED_PERMISSIONS,
+                    REQUEST_CODE_PERMISSIONS
+                )
+            } else {
+                openPhoto()
+            }
+        }
+    }
+
+    private fun openPhoto() {
+//        val intent = Intent(Intent.ACTION_GET_CONTENT)
+//        intent.addCategory(Intent.CATEGORY_OPENABLE)
+//        intent.type = "image/*"
+//        startActivityForResult(intent, PICK_PHOTO)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        if (requestCode == REQUEST_CODE_PERMISSIONS) {
+            if (ContextCompat.checkSelfPermission(
+                    this@MainActivity,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                openPhoto()
+            } else {
+                toast("Permissions not granted by the user.")
+            }
         }
     }
 
     private fun loadModel(): String {
         return try {
-            PhotoController.instance.mModule = Module.load(assetFilePath(applicationContext, Const.MODEL_NAME))
+            PhotoController.instance.mModule =
+                Module.load(assetFilePath(applicationContext, Const.MODEL_NAME))
             "model load succeed."
         } catch (e: IOException) {
             "model load failed."
@@ -76,6 +142,64 @@ class MainActivity : AppCompatActivity() {
             throw e
         }
     }
+
+
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+        when (requestCode) {
+            PICK_PHOTO -> if (resultCode == Activity.RESULT_OK) {
+                var imagePath: String? = null
+                val uri: Uri = data?.data!!
+
+                uri.path?.let { Log.e(TAG, it) }
+                if (DocumentsContract.isDocumentUri(this, uri)) {
+                    val docId = DocumentsContract.getDocumentId(uri)
+                    if ("com.android.providers.media.documents" == uri.authority) {
+                        val id = docId.split(":").toTypedArray()[1]
+                        val selection = MediaStore.Images.Media._ID + "=" + id
+                        imagePath = getImagePath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, selection)
+                    } else if ("com.android.providers.downloads.documents" == uri.authority) {
+                        val contentUri: Uri = ContentUris.withAppendedId(
+                            Uri.parse("content: //downloads/public_downloads"),
+                            java.lang.Long.valueOf(docId)
+                        )
+                        imagePath = getImagePath(contentUri, null)
+                    }
+                } else if ("content".equals(uri.scheme, ignoreCase = true)) {
+                    imagePath = getImagePath(uri, null)
+                } else {
+                    imagePath = uri.path
+                }
+                var bitmap = BitmapFactory.decodeFile(imagePath)
+                bitmap = bitmap?.resizeIfShortBigThan(Const.IMAGE_MAX_SIZE)
+
+                PhotoController.instance.mBitmap = bitmap
+                PhotoController.instance.mCutoutBitmap = null
+                val intent = Intent(this, EditActivity::class.java)
+                startActivity(intent)
+            }
+            else -> {
+            }
+        }
+    }
+
+
+    private fun getImagePath(uri: Uri, selection: String?): String? {
+        var path: String? = null
+        val cursor: Cursor? = contentResolver.query(uri, null, selection, null, null)
+        if (cursor != null) {
+            if (cursor.moveToFirst()) {
+                path = cursor.getString(cursor.getColumnIndex(MediaStore.Images.Media.DATA))
+            }
+            cursor.close()
+        }
+        return path
+    }
+
 
     private fun toast(message: String, length: Int = Toast.LENGTH_SHORT) {
         Toast.makeText(this, message, length).show()
