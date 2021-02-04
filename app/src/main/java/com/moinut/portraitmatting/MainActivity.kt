@@ -12,12 +12,17 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.text.InputType
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.afollestad.materialdialogs.MaterialDialog
+import com.afollestad.materialdialogs.input.input
+import com.afollestad.materialdialogs.list.listItemsSingleChoice
+import kotlinx.android.synthetic.main.activity_camera.*
 import kotlinx.android.synthetic.main.activity_main.*
 import org.jetbrains.anko.doAsync
 import org.jetbrains.anko.uiThread
@@ -49,21 +54,62 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        imageView.setOnClickListener {
-            if (Const.MODEL_NAME == "mobilenet_cutout.pth") {
-                Const.MODEL_NAME = "pspnet_cutout.pth"
-                toast("loading PSPNet")
-                loadModel()
-            } else {
-                Const.MODEL_NAME = "mobilenet_cutout.pth"
-                loadModel()
-                toast("loading MobileNet")
+        // load alpha only model
+        doAsync {
+            PhotoController.instance.mAlphaModule = Module.load(assetFilePath(applicationContext, Const.ALPHA_MODEL_NAME))
+            uiThread {
+                PhotoController.instance.mAlphaModuleLoaded = true
             }
+        }
+
+        imageView.setOnLongClickListener {
+            var selection = 0
+            when (Const.MODEL_NAME) {
+                "mobilenet_cutout.pth" -> selection = 0
+                "pspnet_cutout.pth" -> selection = 1
+                "modnet_cutout.pth" -> selection = 2
+            }
+            MaterialDialog(this).show {
+                listItemsSingleChoice(
+                    items = arrayListOf("MOBILE NET", "PSP NET", "MOD NET"),
+                    initialSelection = selection
+                ) { dialog, index, text ->
+                    when (index) {
+                        0 -> {
+                            Const.MODEL_NAME = "mobilenet_cutout.pth"
+                            toast("SWITCH TO MOBILE NET.")
+                            loadModel()
+                        }
+                        1 -> {
+                            Const.MODEL_NAME = "pspnet_cutout.pth"
+                            toast("SWITCH TO PSP NET.")
+                            loadModel()
+                        }
+                        2 -> {
+                            Const.MODEL_NAME = "modnet_cutout.pth"
+                            toast("SWITCH TO MOD NET.")
+                            loadModel()
+                        }
+                    }
+                }
+                positiveButton(text = "OK")
+            }
+            true
         }
 
         buttonPhoto.setOnClickListener {
             val intent = Intent(this, CameraActivity::class.java)
             startActivity(intent)
+        }
+
+        buttonPhoto.setOnLongClickListener {
+            MaterialDialog(this).show {
+                input(inputType = InputType.TYPE_CLASS_NUMBER, prefill = Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE.toString()) { dialog, text ->
+                    Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE = text.toString().toInt()
+                }
+                positiveButton(text = "OK")
+            }
+            false
         }
 
         buttonFile.setOnClickListener {
@@ -161,7 +207,8 @@ class MainActivity : AppCompatActivity() {
                     if ("com.android.providers.media.documents" == uri.authority) {
                         val id = docId.split(":").toTypedArray()[1]
                         val selection = MediaStore.Images.Media._ID + "=" + id
-                        imagePath = getImagePath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, selection)
+                        imagePath =
+                            getImagePath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, selection)
                     } else if ("com.android.providers.downloads.documents" == uri.authority) {
                         val contentUri: Uri = ContentUris.withAppendedId(
                             Uri.parse("content: //downloads/public_downloads"),

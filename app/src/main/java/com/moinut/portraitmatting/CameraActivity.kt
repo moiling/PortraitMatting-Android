@@ -4,7 +4,10 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.os.Bundle
+import android.text.InputType
 import android.util.Log
 import android.util.Size
 import android.view.OrientationEventListener
@@ -16,8 +19,14 @@ import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.scale
 import androidx.lifecycle.LiveData
+import com.afollestad.materialdialogs.MaterialDialog
+import com.afollestad.materialdialogs.input.input
 import kotlinx.android.synthetic.main.activity_camera.*
+import org.pytorch.IValue
+import org.pytorch.Tensor
+import org.pytorch.torchvision.TensorImageUtils
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -32,11 +41,11 @@ class CameraActivity : AppCompatActivity() {
     private var mCameraProvider: ProcessCameraProvider? = null
     private var mCameraInfo: CameraInfo? = null
     private var mCameraControl: CameraControl? = null
+    private var mShowAlpha = false
 
     private var mAspectRatioInt = AspectRatio.RATIO_4_3
     private var mCameraSelectorInt = CameraSelector.LENS_FACING_BACK
 
-    private lateinit var mOutputDirectory: File
     private lateinit var mCameraExecutor: ExecutorService
 
     companion object {
@@ -77,9 +86,16 @@ class CameraActivity : AppCompatActivity() {
             imageCamera.layoutParams.height = windowWidth * 4 / 3
         }
 
-        mOutputDirectory = getOutputDirectory()
+        imageAlpha.visibility = View.INVISIBLE
 
-        mCameraExecutor = Executors.newSingleThreadExecutor()
+        buttonShowAlpha.setOnClickListener {
+            mShowAlpha = !mShowAlpha
+            if (mShowAlpha) {
+                imageAlpha.visibility = View.VISIBLE
+            } else {
+                imageAlpha.visibility = View.INVISIBLE
+            }
+        }
     }
 
     private fun previewLayoutVisible(visible: Boolean) {
@@ -90,6 +106,9 @@ class CameraActivity : AppCompatActivity() {
             buttonTakePhoto.visibility = View.INVISIBLE
             viewFinder.visibility = View.INVISIBLE
             buttonChangeCamera.visibility = View.INVISIBLE
+            buttonFlash.visibility = View.INVISIBLE
+            imageAlpha.visibility = View.INVISIBLE
+            buttonShowAlpha.visibility = View.INVISIBLE
         } else {
             imageCamera.visibility = View.INVISIBLE
             buttonCancel.visibility = View.INVISIBLE
@@ -97,6 +116,13 @@ class CameraActivity : AppCompatActivity() {
             buttonTakePhoto.visibility = View.VISIBLE
             viewFinder.visibility = View.VISIBLE
             buttonChangeCamera.visibility = View.VISIBLE
+            buttonFlash.visibility = View.VISIBLE
+            if (mShowAlpha) {
+                imageAlpha.visibility = View.VISIBLE
+            } else {
+                imageAlpha.visibility = View.INVISIBLE
+            }
+            buttonShowAlpha.visibility = View.VISIBLE
         }
     }
 
@@ -105,6 +131,8 @@ class CameraActivity : AppCompatActivity() {
     }
 
     private fun initCamera() {
+        mCameraExecutor = Executors.newSingleThreadExecutor()
+
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
         initCameraSelector()
@@ -145,19 +173,7 @@ class CameraActivity : AppCompatActivity() {
                 ) // auto calling cancelFocusAndMetering in 3 seconds
                     .setAutoCancelDuration(3, TimeUnit.SECONDS)
                     .build()
-                // mBinding.focusView.startFocus(Point(x.toInt(), y.toInt()))
-                val future= mCameraControl!!.startFocusAndMetering(action)
-//                future.addListener({
-//                    try {
-//                        if (future.get().isFocusSuccessful) {
-//                            // mBinding.focusView.onFocusSuccess()
-//                        } else {
-//                            // mBinding.focusView.onFocusFailed()
-//                        }
-//                    } catch (e: Exception) {
-//                        // LogUtils.e(e)
-//                    }
-//                }, executor)
+                mCameraControl!!.startFocusAndMetering(action)
             }
 
             override fun doubleClick(x: Float, y: Float) {
@@ -174,6 +190,7 @@ class CameraActivity : AppCompatActivity() {
         viewFinder.setOnTouchListener(cameraXPreviewViewTouchListener)
     }
 
+    @SuppressLint("UnsafeExperimentalUsageError")
     private fun initImageAnalyzer() {
         mImageAnalyzer = ImageAnalysis.Builder()
             .setTargetResolution(
@@ -182,6 +199,72 @@ class CameraActivity : AppCompatActivity() {
             )
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
+        mImageAnalyzer!!.setAnalyzer(mCameraExecutor, ImageAnalysis.Analyzer {
+            if (!PhotoController.instance.mAlphaModuleLoaded || !mShowAlpha) {
+                it.close()
+                return@Analyzer
+            }
+            var bitmap = it.image?.toYUVBitmap()
+
+            if (bitmap == null) {
+                it.close()
+                return@Analyzer
+            }
+
+            bitmap = bitmap.rotate(it.imageInfo.rotationDegrees + 0f)
+            if (mCameraSelectorInt == CameraSelector.LENS_FACING_FRONT) {
+                bitmap = bitmap?.flipHorizontal()
+            }
+            bitmap = bitmap!!.resizeIfShortBigThan(Const.ALPHA_ONLY_IMAGE_MAX_SIZE)
+            // matting
+
+            val out = alphaMatting(bitmap!!)
+            runOnUiThread {
+                imageAlpha.setImageBitmap(out)
+            }
+            it.close()
+        })
+    }
+
+    private fun alphaMatting(bitmap: Bitmap): Bitmap {
+        val mean = floatArrayOf(0f, 0f, 0f)
+        val std = floatArrayOf(1f, 1f, 1f)
+
+        val originWidth = bitmap.width
+        val originHeight = bitmap.height
+        val scaledBitmap = Bitmap.createScaledBitmap(
+            bitmap,
+            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE,
+            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE,
+            false
+        )
+        val inputTensor: Tensor = TensorImageUtils.bitmapToFloat32Tensor(scaledBitmap, mean, std)
+
+        val outTensor: IValue = PhotoController.instance.mAlphaModule!!.forward(IValue.from(inputTensor))
+
+        val scaledCutoutBitmap: Bitmap = Bitmap.createBitmap(
+            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE,
+            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE,
+            Bitmap.Config.ARGB_8888
+        )
+        val alphaFloat: FloatArray = outTensor.toTensor().dataAsFloatArray
+        val alphaInt = IntArray(alphaFloat.size)
+
+        // network size for.
+        for (i in alphaInt.indices) {
+            alphaInt[i] = Color.argb(alphaFloat[i], 1f, 1f, 1f)
+        }
+        scaledCutoutBitmap.setPixels(
+            alphaInt,
+            0,
+            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE,
+            0,
+            0,
+            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE,
+            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE
+        )
+
+        return scaledCutoutBitmap.scale(originWidth, originHeight, false)
     }
 
     private fun initImageCapture() {
@@ -221,7 +304,7 @@ class CameraActivity : AppCompatActivity() {
     }
 
     private fun takePhoto() {
-        mImageCapture?.takePicture(ContextCompat.getMainExecutor(this),
+        mImageCapture?.takePicture(mCameraExecutor,
             object : ImageCapture.OnImageCapturedCallback() {
                 @SuppressLint("UnsafeExperimentalUsageError")
                 override fun onCaptureSuccess(image: ImageProxy) {
@@ -236,9 +319,11 @@ class CameraActivity : AppCompatActivity() {
 
                     PhotoController.instance.mBitmap = bitmap
                     PhotoController.instance.mCutoutBitmap = null
-
-                    imageCamera.setImageBitmap(bitmap)
-                    previewLayoutVisible(true)
+                    runOnUiThread {
+                        imageCamera.setImageBitmap(bitmap)
+                        previewLayoutVisible(true)
+                    }
+                    image.close()
                 }
 
                 override fun onError(exception: ImageCaptureException) {
@@ -268,13 +353,6 @@ class CameraActivity : AppCompatActivity() {
                 finish()
             }
         }
-    }
-
-    private fun getOutputDirectory(): File {
-        val mediaDir = externalMediaDirs.firstOrNull()?.let {
-            File(it, resources.getString(R.string.app_name)).apply { mkdirs() }
-        }
-        return if (mediaDir != null && mediaDir.exists()) mediaDir else filesDir
     }
 
     private fun toast(message: String, length: Int = Toast.LENGTH_SHORT) {

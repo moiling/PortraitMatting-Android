@@ -1,10 +1,9 @@
 package com.moinut.portraitmatting
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
+import android.graphics.*
 import android.media.Image
 import android.net.Uri
+import java.io.ByteArrayOutputStream
 import java.io.FileNotFoundException
 
 
@@ -35,12 +34,35 @@ fun loadBitmap(image_path: String): Bitmap {
         ?: throw FileNotFoundException("Couldn't open $image_path")
 }
 
-fun Image.toBitmap(): Bitmap {
+fun Image.toBitmap(): Bitmap? {
     val buffer = planes[0].buffer
     buffer.rewind()
     val bytes = ByteArray(buffer.capacity())
     buffer.get(bytes)
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+}
+
+fun Image.toYUVBitmap(): Bitmap {
+    val yBuffer = planes[0].buffer // Y
+    val uBuffer = planes[1].buffer // U
+    val vBuffer = planes[2].buffer // V
+
+    val ySize = yBuffer.remaining()
+    val uSize = uBuffer.remaining()
+    val vSize = vBuffer.remaining()
+
+    val nv21 = ByteArray(ySize + uSize + vSize)
+
+    //U and V are swapped
+    yBuffer.get(nv21, 0, ySize)
+    vBuffer.get(nv21, ySize, vSize)
+    uBuffer.get(nv21, ySize + vSize, uSize)
+
+    val yuvImage = YuvImage(nv21, ImageFormat.NV21, this.width, this.height, null)
+    val out = ByteArrayOutputStream()
+    yuvImage.compressToJpeg(Rect(0, 0, yuvImage.width, yuvImage.height), 50, out)
+    val imageBytes = out.toByteArray()
+    return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
 }
 
 fun Bitmap.rotate(alpha: Float): Bitmap? {

@@ -31,18 +31,18 @@ import java.util.*
 
 class EditActivity : AppCompatActivity() {
     private var mBitmap: Bitmap? = null
-    private var mBackgroundColor: Int = Color.argb(255, 33, 150, 243)
+    private var mBackgroundColor: Int = Color.parseColor("#9e9e9e")
     private var mIsSaving: Boolean = false
 
     private val mColorList = intArrayOf(
-        Color.argb(255, 33, 150, 243),
-        Color.argb(255, 255, 255, 255),
-        Color.argb(255, 255, 47, 74),
-        Color.argb(255, 255, 159, 47),
-        Color.argb(255, 157, 157, 157),
-        Color.argb(255, 222, 222, 222),
-        Color.argb(255, 55, 55, 55),
-        Color.argb(255, 0, 0, 0)
+        Color.parseColor("#9e9e9e"),
+        Color.parseColor("#ffffff"),
+        Color.parseColor("#673ab7"),
+        Color.parseColor("#5677fc"),
+        Color.parseColor("#8bc34a"),
+        Color.parseColor("#ffeb3b"),
+        Color.parseColor("#ff9800"),
+        Color.parseColor("#e51c23")
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {

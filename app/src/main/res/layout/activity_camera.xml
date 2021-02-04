@@ -101,5 +101,26 @@
         app:layout_constraintTop_toTopOf="@+id/buttonChangeCamera"
         app:srcCompat="@drawable/ic_baseline_flash_off_white_24" />
 
+    <ImageView
+        android:id="@+id/imageAlpha"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="12dp"
+        android:background="#000000"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/viewFinder"
+        tools:srcCompat="@tools:sample/avatars" />
+
+    <ImageButton
+        android:id="@+id/buttonShowAlpha"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="24dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        app:layout_constraintEnd_toStartOf="@+id/buttonFlash"
+        app:layout_constraintTop_toTopOf="@+id/buttonChangeCamera"
+        app:srcCompat="@drawable/ic_baseline_gradient_white_24" />
+
 
 </androidx.constraintlayout.widget.ConstraintLayout>

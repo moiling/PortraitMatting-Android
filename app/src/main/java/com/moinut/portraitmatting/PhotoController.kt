@@ -7,7 +7,9 @@ class PhotoController private constructor() {
     var mBitmap: Bitmap? = null
     var mCutoutBitmap: Bitmap? = null
     var mModule: Module? = null
+    var mAlphaModule: Module? = null
     var mModuleLoaded: Boolean = false
+    var mAlphaModuleLoaded: Boolean = false
 
     companion object {
 
