@@ -1,39 +1,33 @@
-package com.moinut.portraitmatting
+package com.moinut.portraitmatting.vu.activity
 
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
-import android.text.InputType
 import android.util.Log
 import android.util.Size
 import android.view.OrientationEventListener
 import android.view.Surface
 import android.view.View
-import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.scale
 import androidx.lifecycle.LiveData
-import com.afollestad.materialdialogs.MaterialDialog
-import com.afollestad.materialdialogs.input.input
+import com.moinut.portraitmatting.R
+import com.moinut.portraitmatting.config.Param
+import com.moinut.portraitmatting.ctr.MattingController
+import com.moinut.portraitmatting.utils.*
+import com.moinut.portraitmatting.vu.listener.CameraTouchListener
 import kotlinx.android.synthetic.main.activity_camera.*
-import org.pytorch.IValue
-import org.pytorch.Tensor
-import org.pytorch.torchvision.TensorImageUtils
-import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 
-class CameraActivity : AppCompatActivity() {
+class CameraActivity : BaseActivity() {
     private var mPreview: Preview? = null
     private var mImageCapture: ImageCapture? = null
     private var mImageAnalyzer: ImageAnalysis? = null
@@ -50,7 +44,6 @@ class CameraActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "CameraActivity"
-        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
         private const val REQUEST_CODE_PERMISSIONS = 10
         private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
     }
@@ -58,26 +51,23 @@ class CameraActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_camera)
-        // Request camera permissions
+
         if (allPermissionsGranted())
             initCamera()
         else
-            ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
-
-        // Setup the listener for take photo button
-        buttonTakePhoto.setOnClickListener { takePhoto() }
-        buttonChangeCamera.setOnClickListener { changeCamera() }
-        buttonBack.setOnClickListener { finish() }
-        buttonCancel.setOnClickListener { previewLayoutVisible(false) }
-        buttonOk.setOnClickListener {
-            val intent = Intent(this, EditActivity::class.java)
-            startActivity(intent)
-            finish()
-        }
+            ActivityCompat.requestPermissions(this,
+                REQUIRED_PERMISSIONS,
+                REQUEST_CODE_PERMISSIONS
+            )
 
         previewLayoutVisible(false)
 
-        val windowWidth = this.windowManager.currentWindowMetrics.bounds.width()
+        val windowWidth = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            this.windowManager.currentWindowMetrics.bounds.width()
+        } else {
+            this.windowManager.defaultDisplay.width
+        }
+
         if (mAspectRatioInt == AspectRatio.RATIO_16_9) {
             viewFinder.layoutParams.height = windowWidth * 16 / 9
             imageCamera.layoutParams.height = windowWidth * 16 / 9
@@ -87,6 +77,20 @@ class CameraActivity : AppCompatActivity() {
         }
 
         imageAlpha.visibility = View.INVISIBLE
+
+        setListener()
+    }
+
+    private fun setListener() {
+        buttonTakePhoto.setOnClickListener { takePhoto() }
+        buttonChangeCamera.setOnClickListener { changeCamera() }
+        buttonBack.setOnClickListener { finish() }
+        buttonCancel.setOnClickListener { previewLayoutVisible(false) }
+        buttonOk.setOnClickListener {
+            val intent = Intent(this, EditActivity::class.java)
+            startActivity(intent)
+            finish()
+        }
 
         buttonShowAlpha.setOnClickListener {
             mShowAlpha = !mShowAlpha
@@ -157,8 +161,10 @@ class CameraActivity : AppCompatActivity() {
     private fun initCameraListener() {
         val zoomState: LiveData<ZoomState> = mCameraInfo?.zoomState!!
 
-        val cameraXPreviewViewTouchListener = CameraTouchListener(this)
-        cameraXPreviewViewTouchListener.setCustomTouchListener(object : CameraTouchListener.CustomTouchListener {
+        val cameraXPreviewViewTouchListener =
+            CameraTouchListener(this)
+        cameraXPreviewViewTouchListener.setCustomTouchListener(object :
+            CameraTouchListener.CustomTouchListener {
             override fun zoom(delta: Float) {
                 val currentZoomRatio = zoomState.value!!.zoomRatio
                 mCameraControl!!.setZoomRatio(currentZoomRatio * delta)
@@ -167,10 +173,7 @@ class CameraActivity : AppCompatActivity() {
             override fun click(x: Float, y: Float) {
                 val factory: MeteringPointFactory = viewFinder.meteringPointFactory
                 val point = factory.createPoint(x, y)
-                val action = FocusMeteringAction.Builder(
-                    point,
-                    FocusMeteringAction.FLAG_AF
-                ) // auto calling cancelFocusAndMetering in 3 seconds
+                val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
                     .setAutoCancelDuration(3, TimeUnit.SECONDS)
                     .build()
                 mCameraControl!!.startFocusAndMetering(action)
@@ -199,8 +202,9 @@ class CameraActivity : AppCompatActivity() {
             )
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
+
         mImageAnalyzer!!.setAnalyzer(mCameraExecutor, ImageAnalysis.Analyzer {
-            if (!PhotoController.instance.mAlphaModuleLoaded || !mShowAlpha) {
+            if (!MattingController.INSTANCE.mAlphaModuleLoaded || !mShowAlpha) {
                 it.close()
                 return@Analyzer
             }
@@ -215,56 +219,15 @@ class CameraActivity : AppCompatActivity() {
             if (mCameraSelectorInt == CameraSelector.LENS_FACING_FRONT) {
                 bitmap = bitmap?.flipHorizontal()
             }
-            bitmap = bitmap!!.resizeIfShortBigThan(Const.ALPHA_ONLY_IMAGE_MAX_SIZE)
+            bitmap = bitmap!!.resizeIfShortBigThan(Param.ALPHA_ONLY_IMAGE_MAX_SIZE)
             // matting
 
-            val out = alphaMatting(bitmap!!)
+            val out = MattingController.INSTANCE.alphaMatting(bitmap!!)
             runOnUiThread {
                 imageAlpha.setImageBitmap(out)
             }
             it.close()
         })
-    }
-
-    private fun alphaMatting(bitmap: Bitmap): Bitmap {
-        val mean = floatArrayOf(0f, 0f, 0f)
-        val std = floatArrayOf(1f, 1f, 1f)
-
-        val originWidth = bitmap.width
-        val originHeight = bitmap.height
-        val scaledBitmap = Bitmap.createScaledBitmap(
-            bitmap,
-            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE,
-            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE,
-            false
-        )
-        val inputTensor: Tensor = TensorImageUtils.bitmapToFloat32Tensor(scaledBitmap, mean, std)
-
-        val outTensor: IValue = PhotoController.instance.mAlphaModule!!.forward(IValue.from(inputTensor))
-
-        val scaledCutoutBitmap: Bitmap = Bitmap.createBitmap(
-            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE,
-            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE,
-            Bitmap.Config.ARGB_8888
-        )
-        val alphaFloat: FloatArray = outTensor.toTensor().dataAsFloatArray
-        val alphaInt = IntArray(alphaFloat.size)
-
-        // network size for.
-        for (i in alphaInt.indices) {
-            alphaInt[i] = Color.argb(alphaFloat[i], 1f, 1f, 1f)
-        }
-        scaledCutoutBitmap.setPixels(
-            alphaInt,
-            0,
-            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE,
-            0,
-            0,
-            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE,
-            Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE
-        )
-
-        return scaledCutoutBitmap.scale(originWidth, originHeight, false)
     }
 
     private fun initImageCapture() {
@@ -312,13 +275,13 @@ class CameraActivity : AppCompatActivity() {
                     var bitmap = image.image?.toBitmap()
 
                     bitmap = bitmap?.rotate(image.imageInfo.rotationDegrees + 0f)
-                    bitmap = bitmap?.resizeIfShortBigThan(Const.IMAGE_MAX_SIZE)
+                    bitmap = bitmap?.resizeIfShortBigThan(Param.IMAGE_MAX_SIZE)
                     if (mCameraSelectorInt == CameraSelector.LENS_FACING_FRONT) {
                         bitmap = bitmap?.flipHorizontal()
                     }
 
-                    PhotoController.instance.mBitmap = bitmap
-                    PhotoController.instance.mCutoutBitmap = null
+                    MattingController.INSTANCE.mBitmap = bitmap
+                    MattingController.INSTANCE.mCutoutBitmap = null
                     runOnUiThread {
                         imageCamera.setImageBitmap(bitmap)
                         previewLayoutVisible(true)
@@ -353,9 +316,5 @@ class CameraActivity : AppCompatActivity() {
                 finish()
             }
         }
-    }
-
-    private fun toast(message: String, length: Int = Toast.LENGTH_SHORT) {
-        Toast.makeText(this, message, length).show()
     }
 }

@@ -1,9 +1,8 @@
-package com.moinut.portraitmatting
+package com.moinut.portraitmatting.vu.activity
 
 import android.Manifest
 import android.app.Activity
 import android.content.ContentUris
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
@@ -14,81 +13,67 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.text.InputType
 import android.util.Log
-import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
-import androidx.camera.core.CameraSelector
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.afollestad.materialdialogs.MaterialDialog
 import com.afollestad.materialdialogs.input.input
 import com.afollestad.materialdialogs.list.listItemsSingleChoice
-import kotlinx.android.synthetic.main.activity_camera.*
+import com.moinut.portraitmatting.ctr.MattingController
+import com.moinut.portraitmatting.config.Param
+import com.moinut.portraitmatting.R
+import com.moinut.portraitmatting.utils.resizeIfShortBigThan
 import kotlinx.android.synthetic.main.activity_main.*
-import org.jetbrains.anko.doAsync
-import org.jetbrains.anko.uiThread
-import org.pytorch.Module
-import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
 
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : BaseActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
         private const val REQUEST_CODE_PERMISSIONS = 101
         private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         private const val PICK_PHOTO = 102
+        private val NET_LIST = arrayListOf("MOBILE NET", "PSP NET", "MOD NET")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // load model
-        doAsync {
-            loadModel()
+        setListener()
+    }
 
-            uiThread {
-                PhotoController.instance.mModuleLoaded = true
-            }
-        }
-
-        // load alpha only model
-        doAsync {
-            PhotoController.instance.mAlphaModule = Module.load(assetFilePath(applicationContext, Const.ALPHA_MODEL_NAME))
-            uiThread {
-                PhotoController.instance.mAlphaModuleLoaded = true
-            }
-        }
-
+    private fun setListener() {
         imageView.setOnLongClickListener {
-            var selection = 0
-            when (Const.MODEL_NAME) {
-                "mobilenet_cutout.pth" -> selection = 0
-                "pspnet_cutout.pth" -> selection = 1
-                "modnet_cutout.pth" -> selection = 2
+            val selection = when (Param.MODEL_NAME) {
+                Param.MOBILE_NET_NAME -> 0
+                Param.PSP_NET_NAME -> 1
+                Param.MODEL_NAME -> 2
+                else -> 0
             }
+
             MaterialDialog(this).show {
                 listItemsSingleChoice(
-                    items = arrayListOf("MOBILE NET", "PSP NET", "MOD NET"),
+                    items = NET_LIST,
                     initialSelection = selection
-                ) { dialog, index, text ->
+                ) { _, index, _ ->
                     when (index) {
                         0 -> {
-                            Const.MODEL_NAME = "mobilenet_cutout.pth"
+                            Param.MODEL_NAME =
+                                Param.MOBILE_NET_NAME
                             toast("SWITCH TO MOBILE NET.")
-                            loadModel()
+                            MattingController.INSTANCE.loadModel(applicationContext)
                         }
                         1 -> {
-                            Const.MODEL_NAME = "pspnet_cutout.pth"
+                            Param.MODEL_NAME =
+                                Param.PSP_NET_NAME
                             toast("SWITCH TO PSP NET.")
-                            loadModel()
+                            MattingController.INSTANCE.loadModel(applicationContext)
                         }
                         2 -> {
-                            Const.MODEL_NAME = "modnet_cutout.pth"
+                            Param.MODEL_NAME =
+                                Param.MOD_NET_NAME
                             toast("SWITCH TO MOD NET.")
-                            loadModel()
+                            MattingController.INSTANCE.loadModel(applicationContext)
                         }
                     }
                 }
@@ -104,8 +89,11 @@ class MainActivity : AppCompatActivity() {
 
         buttonPhoto.setOnLongClickListener {
             MaterialDialog(this).show {
-                input(inputType = InputType.TYPE_CLASS_NUMBER, prefill = Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE.toString()) { dialog, text ->
-                    Const.ALPHA_ONLY_NETWORK_IMAGE_SIZE = text.toString().toInt()
+                input(
+                    inputType = InputType.TYPE_CLASS_NUMBER,
+                    prefill = Param.ALPHA_ONLY_NETWORK_IMAGE_SIZE.toString()
+                ) { _, text ->
+                    Param.ALPHA_ONLY_NETWORK_IMAGE_SIZE = text.toString().toInt()
                 }
                 positiveButton(text = "OK")
             }
@@ -124,77 +112,36 @@ class MainActivity : AppCompatActivity() {
                     REQUEST_CODE_PERMISSIONS
                 )
             } else {
-                openPhoto()
+                openImageDir()
             }
         }
     }
 
-    private fun openPhoto() {
-//        val intent = Intent(Intent.ACTION_GET_CONTENT)
-//        intent.addCategory(Intent.CATEGORY_OPENABLE)
-//        intent.type = "image/*"
-//        startActivityForResult(intent, PICK_PHOTO)
+    private fun openImageDir() {
+        val intent = Intent(Intent.ACTION_GET_CONTENT)
+        intent.addCategory(Intent.CATEGORY_OPENABLE)
+        intent.type = "image/*"
+        startActivityForResult(intent,
+            PICK_PHOTO
+        )
     }
 
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
-    ) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         if (requestCode == REQUEST_CODE_PERMISSIONS) {
             if (ContextCompat.checkSelfPermission(
                     this@MainActivity,
                     Manifest.permission.WRITE_EXTERNAL_STORAGE
                 ) == PackageManager.PERMISSION_GRANTED
             ) {
-                openPhoto()
+                openImageDir()
             } else {
                 toast("Permissions not granted by the user.")
             }
         }
     }
 
-    private fun loadModel(): String {
-        return try {
-            PhotoController.instance.mModule =
-                Module.load(assetFilePath(applicationContext, Const.MODEL_NAME))
-            "model load succeed."
-        } catch (e: IOException) {
-            "model load failed."
-        }
-    }
 
-    @Throws(IOException::class)
-    private fun assetFilePath(ctx: Context, assetName: String): String {
-        val file = File(ctx.filesDir, assetName)
-        if (file.exists() and (file.length() > 0)) {
-            return file.absolutePath
-        }
-
-        // not in cache.
-        try {
-            ctx.assets.open(assetName).use { fis ->
-                FileOutputStream(file).use { fos ->
-                    val buffer = ByteArray(4 * 1024)
-                    var len: Int
-                    while ((fis.read(buffer).also { len = it }) != -1) {
-                        fos.write(buffer, 0, len)
-                    }
-                    fos.flush()
-                }
-            }
-            return file.absolutePath
-        } catch (e: IOException) {
-            throw e
-        }
-    }
-
-
-    override fun onActivityResult(
-        requestCode: Int,
-        resultCode: Int,
-        data: Intent?
-    ) {
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         when (requestCode) {
             PICK_PHOTO -> if (resultCode == Activity.RESULT_OK) {
@@ -207,8 +154,7 @@ class MainActivity : AppCompatActivity() {
                     if ("com.android.providers.media.documents" == uri.authority) {
                         val id = docId.split(":").toTypedArray()[1]
                         val selection = MediaStore.Images.Media._ID + "=" + id
-                        imagePath =
-                            getImagePath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, selection)
+                        imagePath = getImagePath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, selection)
                     } else if ("com.android.providers.downloads.documents" == uri.authority) {
                         val contentUri: Uri = ContentUris.withAppendedId(
                             Uri.parse("content: //downloads/public_downloads"),
@@ -222,14 +168,12 @@ class MainActivity : AppCompatActivity() {
                     imagePath = uri.path
                 }
                 var bitmap = BitmapFactory.decodeFile(imagePath)
-                bitmap = bitmap?.resizeIfShortBigThan(Const.IMAGE_MAX_SIZE)
+                bitmap = bitmap?.resizeIfShortBigThan(Param.IMAGE_MAX_SIZE)
 
-                PhotoController.instance.mBitmap = bitmap
-                PhotoController.instance.mCutoutBitmap = null
+                MattingController.INSTANCE.mBitmap = bitmap
+                MattingController.INSTANCE.mCutoutBitmap = null
                 val intent = Intent(this, EditActivity::class.java)
                 startActivity(intent)
-            }
-            else -> {
             }
         }
     }
@@ -245,10 +189,5 @@ class MainActivity : AppCompatActivity() {
             cursor.close()
         }
         return path
-    }
-
-
-    private fun toast(message: String, length: Int = Toast.LENGTH_SHORT) {
-        Toast.makeText(this, message, length).show()
     }
 }

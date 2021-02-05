@@ -1,8 +1,9 @@
-package com.moinut.portraitmatting
+package com.moinut.portraitmatting.utils
 
 import android.graphics.*
 import android.media.Image
 import android.net.Uri
+import com.moinut.portraitmatting.config.Param
 import java.io.ByteArrayOutputStream
 import java.io.FileNotFoundException
 
@@ -22,11 +23,11 @@ fun loadBitmap(image_path: String): Bitmap {
     opt.inSampleSize = 1
 
     if (picWidth > picHeight) {
-        if (picWidth > Const.IMAGE_MAX_SIZE)
-            opt.inSampleSize = picWidth / Const.IMAGE_MAX_SIZE
+        if (picWidth > Param.IMAGE_MAX_SIZE)
+            opt.inSampleSize = picWidth / Param.IMAGE_MAX_SIZE
     } else {
-        if (picHeight > Const.IMAGE_MAX_SIZE)
-            opt.inSampleSize = picHeight / Const.IMAGE_MAX_SIZE
+        if (picHeight > Param.IMAGE_MAX_SIZE)
+            opt.inSampleSize = picHeight / Param.IMAGE_MAX_SIZE
     }
 
     opt.inJustDecodeBounds = false
@@ -71,7 +72,7 @@ fun Bitmap.rotate(alpha: Float): Bitmap? {
 
     val newBM = Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
 
-    if (!this.isRecycled) {
+    if (!this.isRecycled && this != newBM) {  // if new is the same as old, return it self, can't be recycled.
         this.recycle()
     }
     return newBM
@@ -106,7 +107,7 @@ fun Bitmap.flipHorizontal(): Bitmap? {
     matrix.postScale(-1f, 1f)
 
     val newBM = Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
-    if (!this.isRecycled) {
+    if (!this.isRecycled && this != newBM) {  // if new is the same as old, return it self, can't be recycled.
         this.recycle()
     }
     return newBM
